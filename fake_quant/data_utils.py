@@ -10,11 +10,13 @@ def get_wikitext2(nsamples, seed, seqlen, model, hf_token, eval_mode=False):
         tokenizer = transformers.AutoTokenizer.from_pretrained(model, use_fast=False, use_auth_token=hf_token)
         
     if eval_mode:
-        testdata = datasets.load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
-        testenc = tokenizer("\n\n".join(testdata['text']), return_tensors='pt')
+        # testdata = datasets.load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
+        testdata = datasets.load_dataset('/nvme_data/yuanzhihang/QuaRot/wikitext/wikitext-2-raw-v1/0.0.0/b08601e04326c79dfdd32d625aee71d232d685c3/',split='test')
+        testenc = tokenizer("\n\n".join(testdata['text']), return_tensors='pt') #,truncation=True, max_length=seqlen)
         return testenc
     else:
-        traindata = datasets.load_dataset('wikitext', 'wikitext-2-raw-v1', split='train')
+        # traindata = datasets.load_dataset('wikitext', 'wikitext-2-raw-v1', split='train')
+        traindata = datasets.load_dataset('/nvme_data/yuanzhihang/QuaRot/wikitext/wikitext-2-raw-v1/0.0.0/b08601e04326c79dfdd32d625aee71d232d685c3/',split='train')
         trainenc = tokenizer("\n\n".join(traindata['text']), return_tensors='pt')    
         random.seed(seed)
         trainloader = []

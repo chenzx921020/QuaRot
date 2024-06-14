@@ -65,6 +65,9 @@ def fuse_layer_norms(model):
         elif model_type == model_utils.OPT_MODEL:
             fuse_ln_linear(layer.self_attn_layer_norm, [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj])
             fuse_ln_linear(layer.final_layer_norm, [layer.fc1])
+        elif model_type == model_utils.QWEN_MODEL:
+            fuse_ln_linear(layer.post_attention_layernorm, [layer.mlp.up_proj, layer.mlp.gate_proj])    
+            fuse_ln_linear(layer.input_layernorm, [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj])
         else:
             raise ValueError(f'Unknown model type {model_type}')
             
@@ -77,9 +80,15 @@ def fuse_layer_norms(model):
     
     fuse_ln_linear(model_utils.get_pre_head_layernorm(**kwargs), [model_utils.get_lm_head(**kwargs)])
     
+    # model_utils.replace_modules(
+    #     model,
+    #     transformers.models.llama.modeling_llama.LlamaRMSNorm if model_type == model_utils.LLAMA_MODEL else torch.nn.LayerNorm,
+    #     lambda _: model_utils.RMSN(model.config.hidden_size),
+    #     replace_layers=False,
+    # )
     model_utils.replace_modules(
         model,
-        transformers.models.llama.modeling_llama.LlamaRMSNorm if model_type == model_utils.LLAMA_MODEL else torch.nn.LayerNorm,
+        transformers.models.qwen2.modeling_qwen2.Qwen2RMSNorm if model_type == model_utils.QWEN_MODEL else torch.nn.LayerNorm,
         lambda _: model_utils.RMSN(model.config.hidden_size),
         replace_layers=False,
     )
@@ -129,6 +138,9 @@ def rotate_attention_inputs(layer, Q, model_type) -> None:
         dtype = W.weight.dtype
         W_ = W.weight.to(device=utils.DEV, dtype=torch.float64)
         W.weight.data = torch.matmul(W_, Q).to(device="cpu", dtype=dtype)
+        # if W.bias is not None: # for qwen15 qkv
+        #     B_ = W.bias.to(device=utils.DEV, dtype=torch.float64)
+        #     W.bias.data = torch.matmul(B_, Q).to(device="cpu", dtype=dtype)
 
 def rotate_attention_output(layer, Q, model_type) -> None:
     # Rotate output matrix of the self-attention layer.
@@ -136,6 +148,8 @@ def rotate_attention_output(layer, Q, model_type) -> None:
         W = layer.self_attn.o_proj
     elif model_type == model_utils.OPT_MODEL:
         W = layer.self_attn.out_proj
+    elif model_type == model_utils.QWEN_MODEL:
+        W = layer.self_attn.o_proj
     else:
         raise ValueError(f'Unknown model type {model_type}')
 
@@ -148,7 +162,7 @@ def rotate_attention_output(layer, Q, model_type) -> None:
 
 def rotate_mlp_input(layer, Q, model_type):
     # Rotate the MLP input weights.
-    if model_type == model_utils.LLAMA_MODEL:
+    if model_type == model_utils.LLAMA_MODEL or model_type == model_utils.QWEN_MODEL:
         mlp_inputs = [layer.mlp.up_proj, layer.mlp.gate_proj]
     elif model_type == model_utils.OPT_MODEL:
         mlp_inputs = [layer.fc1]
@@ -161,7 +175,7 @@ def rotate_mlp_input(layer, Q, model_type):
     
 def rotate_mlp_output(layer, Q, model_type):
     # Rotate the MLP output weights and bias.
-    if model_type == model_utils.LLAMA_MODEL:
+    if model_type == model_utils.LLAMA_MODEL or model_type == model_utils.QWEN_MODEL:
         W = layer.mlp.down_proj
     elif model_type == model_utils.OPT_MODEL:
         W = layer.fc2
@@ -196,7 +210,7 @@ def matmul_hadU_cuda_had(X, hadK, transpose=False):
 
 def rotate_faster_down_proj(layer, model_type, hardK):
     from fast_hadamard_transform import hadamard_transform
-    if model_type == model_utils.LLAMA_MODEL:
+    if model_type == model_utils.LLAMA_MODEL or model_type == model_utils.QWEN_MODEL :
         W = layer.mlp.down_proj
     else:
         raise ValueError(f'Faster MLP is onlu supported for LLaMa models!')
@@ -215,7 +229,7 @@ def rotate_head(model, Q: torch.Tensor) -> None:
 
 def rotate_ov_proj(layer, model_type, head_num, head_dim):
     v_proj = layer.self_attn.v_proj
-    if model_type == model_utils.LLAMA_MODEL:
+    if model_type == model_utils.LLAMA_MODEL or model_type == model_utils.QWEN_MODEL:
         o_proj = layer.self_attn.o_proj
     elif model_type == model_utils.OPT_MODEL:
         o_proj = layer.self_attn.out_proj

@@ -17,14 +17,16 @@ supported_models = [
             'meta-llama/Llama-2-70b-hf',
             'meta-llama/Meta-Llama-3-8B',
             'meta-llama/Meta-Llama-3-70B',
-            'facebook/opt-125m'
+            'facebook/opt-125m',
+            '/nvme_data/yuanzhihang/QuaRot/fake_quant/Llama-2-7b-hf',
+            '/nvme_data/yuanzhihang/QuaRot/fake_quant/qwen1.5-7b-chat-hf',
             ]
 supported_datasets = ['wikitext2', 'ptb', 'c4']
 
 # These flags disable using TensorFloat-32 tensor cores (to avoid numerical issues)
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
-DEV = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+DEV = torch.device('cuda:1') if torch.cuda.is_available() else torch.device('cpu')
 
 def llama_down_proj_groupsize(model, groupsize):
     
@@ -72,7 +74,8 @@ def parser_gen():
     parser = argparse.ArgumentParser()
 
     # General Arguments
-    parser.add_argument('--model', type=str, default='meta-llama/Llama-2-7b-hf',
+    parser.add_argument('--model', type=str, default='/nvme_data/yuanzhihang/QuaRot/fake_quant/qwen1.5-7b-chat-hf',
+    # parser.add_argument('--model', type=str, default='/nvme_data/yuanzhihang/QuaRot/fake_quant/Llama-2-7b-hf', 
                         help='Model to load;', choices=supported_models)
     parser.add_argument('--seed', type=int, default=0, help='Random Seed for HuggingFace and PyTorch')
     parser.add_argument('--eval_dataset', type=str, default='wikitext2',
@@ -83,7 +86,7 @@ def parser_gen():
 
 
     # Rotation Arguments
-    parser.add_argument('--rotate', action=argparse.BooleanOptionalAction, default=False, 
+    parser.add_argument('--rotate', action=argparse.BooleanOptionalAction, default=True, 
                         help='''Rotate the moodel. This will include online rotation for down-projection and
                         out-projection. Note that this does not apply rotation to the K/Q and they will be rotated
                         if we want to quantize the Keys''')
@@ -94,7 +97,7 @@ def parser_gen():
                         help='Apply Hadamard rotation in FP32 (default: False)')
 
     # Activation Quantization Arguments
-    parser.add_argument('--a_bits', type=int, default=16,
+    parser.add_argument('--a_bits', type=int, default=4,
                         help='''Number of bits for inputs of the Linear layers. This will be
                         for all the linear layers in the model (including down-projection and out-projection)''')
     parser.add_argument('--a_groupsize', type=int, default=-1, 
@@ -106,13 +109,13 @@ def parser_gen():
 
 
     # Weight Quantization Arguments
-    parser.add_argument('--w_bits', type=int, default=16, 
+    parser.add_argument('--w_bits', type=int, default=4, 
                         help='Number of bits for weights of the Linear layers')
     parser.add_argument('--w_groupsize', type=int, default=-1, 
                         help='Groupsize for weight quantization. Note that this should be the same as a_groupsize')
     parser.add_argument('--w_asym', action=argparse.BooleanOptionalAction, default=False,
                         help='ASymmetric weight quantization (default: False)')
-    parser.add_argument('--w_rtn', action=argparse.BooleanOptionalAction, default=False,
+    parser.add_argument('--w_rtn', action=argparse.BooleanOptionalAction, default=True,
                         help='Quantize the weights using RtN. If the w_bits < 16 and this flag is not set, we use GPTQ')
     parser.add_argument('--w_clip', action=argparse.BooleanOptionalAction, default=False,
                         help='''Clipping the weight quantization! 
@@ -132,7 +135,7 @@ def parser_gen():
                         help='Use INT8 for Down Projection! If this set, both weights and activations of this layer will be in INT8')
 
     # KV-Cache Quantization Arguments
-    parser.add_argument('--v_bits', type=int, default=16,
+    parser.add_argument('--v_bits', type=int, default=4,
                         help='''Number of bits for V-cache quantization. 
                         Note that quantizing the V-cache does not need any other rotation''')
     parser.add_argument('--v_groupsize', type=int, default=-1)
@@ -141,7 +144,7 @@ def parser_gen():
     parser.add_argument('--v_clip_ratio', type=float, default=1.0,
         help='Clip ratio for v-cache quantization. new_max = max * clip_ratio')
     
-    parser.add_argument('--k_bits', type=int, default=16,
+    parser.add_argument('--k_bits', type=int, default=4,
                         help='''Number of bits for K-cache quantization. 
                         Note that quantizing the K-cache needs another rotation for the keys/queries''')
     parser.add_argument('--k_groupsize', type=int, default=-1)

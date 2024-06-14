@@ -18,6 +18,9 @@ def evaluator(model, testenc, dev, args):
     elif 'meta' in args.model:
         llama_type = True
         opt_type = False
+    elif 'llama' in args.model.lower() or 'qwen' in args.model.lower():
+        llama_type = True
+        opt_type = False
     else:
         raise ValueError(f'Unknown model {args.model}')
 
@@ -123,7 +126,7 @@ def evaluator(model, testenc, dev, args):
     elif llama_type:
         if model.model.norm is not None:
             model.model.norm = model.model.norm.to(dev)
-
+    dev = torch.device('cpu')
     model.lm_head = model.lm_head.to(dev)
     nlls = []
     loss_fct = torch.nn.CrossEntropyLoss(reduction = "none")
@@ -137,9 +140,13 @@ def evaluator(model, testenc, dev, args):
         elif llama_type:
             if model.model.norm is not None:
                 hidden_states = model.model.norm(hidden_states)
+        hidden_states = hidden_states.to(dev) # mov cpu
         lm_logits = model.lm_head(hidden_states)
         shift_logits = lm_logits[:, :-1, :]
         shift_labels = input_ids[i][:, 1:]
+        # mov cpu
+        shift_labels = shift_labels.to(dev)
+        shift_logits = shift_logits.to(dev)
         loss = loss_fct(shift_logits.permute(0, 2, 1), shift_labels)
         neg_log_likelihood = loss.float().mean(dim=1)
         nlls.append(neg_log_likelihood)

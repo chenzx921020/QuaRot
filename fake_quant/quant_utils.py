@@ -4,6 +4,7 @@ import torch
 import utils
 import hadamard_utils
 import fast_hadamard_transform
+import sys
 
 def get_minq_maxq(bits, sym):
     if sym:
@@ -140,6 +141,23 @@ class ActQuantizer(torch.nn.Module):
         self.scale = self.scale.repeat(1, 1, 1, self.groupsize).reshape(init_shape)
         self.zero = self.zero.repeat(1, 1, 1, self.groupsize).reshape(init_shape)
 
+    def find_params_per_tensor(self, x):
+        init_shape = x.shape
+        # reshaped_x = x.reshape(-1, x.shape[-2], x.shape[-1] // 1, 1)
+
+        xmax = torch.amax(x) * self.clip_ratio
+        xmin = torch.amin(x) * self.clip_ratio
+        if self.sym:
+            xmax = torch.maximum(torch.abs(xmin), xmax)
+            # tmp = xmax == 0
+            self.scale = xmax / self.maxq
+            if xmax==0:
+                self.scale = torch.tensor(1).to(xmax.device).to(xmax.dtype)
+            self.zero = torch.zeros_like(self.scale)
+        else:
+            print ('exist asym act')
+            sys.exit()
+
     def find_params(self, x):
         if self.bits == 16:
             return
@@ -242,14 +260,16 @@ class ActQuantWrapper(torch.nn.Module):
             x = x.reshape(init_shape)
 
         if self.quantizer.bits < 16: #Quantize, if needed
-            self.quantizer.find_params(x)
+            #self.quantizer.find_params(x)
+            self.quantizer.find_params_per_tensor(x)
             x = self.quantizer(x).to(x_dtype)
             self.quantizer.free()
 
         x = self.module(x).to(x_dtype)
 
         if self.out_quantizer.bits < 16: #Quantize the output, if needed
-            self.out_quantizer.find_params(x)
+            # self.out_quantizer.find_params(x)
+            self.out_quantizer.find_params_per_tensor(x)
             x = self.out_quantizer(x).to(x_dtype)
             self.out_quantizer.free()
 

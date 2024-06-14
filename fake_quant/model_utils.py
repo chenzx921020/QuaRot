@@ -9,6 +9,8 @@ OPT_MODEL = transformers.models.opt.modeling_opt.OPTForCausalLM
 OPT_LAYER = transformers.models.opt.modeling_opt.OPTDecoderLayer
 LLAMA_MODEL = transformers.models.llama.modeling_llama.LlamaForCausalLM
 LLAMA_LAYER = transformers.models.llama.modeling_llama.LlamaDecoderLayer
+QWEN_MODEL = transformers.models.qwen2.modeling_qwen2.Qwen2ForCausalLM
+QWEN_LAYER = transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer
 
 
 def model_type_extractor(model):
@@ -16,6 +18,8 @@ def model_type_extractor(model):
         return LLAMA_MODEL
     elif isinstance(model, OPT_MODEL):
         return OPT_MODEL
+    elif isinstance(model, QWEN_MODEL):
+        return QWEN_MODEL
     else:
         raise ValueError(f'Unknown model type {model}')
 
@@ -26,6 +30,8 @@ def skip(*args, **kwargs):
 def get_rope_function_name(model):
     if isinstance(model, LLAMA_MODEL):
         return "apply_rotary_pos_emb"
+    elif isinstance(model, QWEN_MODEL):
+        return "apply_rotary_pos_emb"
     raise NotImplementedError
 
 
@@ -33,6 +39,8 @@ def get_layers(model):
     if isinstance(model, OPT_MODEL):
         return model.model.decoder.layers
     if isinstance(model, LLAMA_MODEL):
+        return model.model.layers
+    if isinstance(model, QWEN_MODEL):
         return model.model.layers
     raise NotImplementedError
 
@@ -48,7 +56,16 @@ def get_llama(model_name, hf_token):
     logging.info('---> Loading {} Model with seq_len: {}'.format(model_name, model.seqlen))
     return model
 
-
+def get_qwen(model_name, hf_token):
+    torch.nn.init.kaiming_uniform_ = skip
+    torch.nn.init.uniform_ = skip
+    torch.nn.init.normal_ = skip
+    model = transformers.Qwen2ForCausalLM.from_pretrained(model_name, torch_dtype='auto',
+                                                          use_auth_token=hf_token,
+                                                          low_cpu_mem_usage=True)
+    model.seqlen = 2048
+    logging.info('---> Loading {} Model with seq_len: {}'.format(model_name, model.seqlen))
+    return model
 
 def get_opt(model_name):
     torch.nn.init.kaiming_uniform_ = skip
@@ -64,8 +81,10 @@ def get_opt(model_name):
 def get_model(
     model_name, hf_token=None
 ):
-    if 'llama' in model_name:
+    if 'llama' in model_name.lower():
         return get_llama(model_name, hf_token)
+    if 'qwen' in model_name.lower():
+        return get_qwen(model_name, hf_token)
     elif 'opt' in model_name:
         return get_opt(model_name)
     else:
@@ -77,12 +96,16 @@ def get_model_type(model):
         model_type = OPT_MODEL
     elif isinstance(model, LLAMA_MODEL):
         model_type = LLAMA_MODEL
+    elif isinstance(model, QWEN_MODEL):
+        model_type = QWEN_MODEL
     else:
         raise ValueError(f'Unknown model type {model}')
     return model_type
 
 def get_embeddings(model, model_type) -> list[torch.nn.Module]:
     if model_type == LLAMA_MODEL:
+        return [model.model.embed_tokens]
+    elif model_type == QWEN_MODEL:
         return [model.model.embed_tokens]
     elif model_type == OPT_MODEL:
         return [model.model.decoder.embed_tokens, model.model.decoder.embed_positions]
@@ -93,6 +116,8 @@ def get_embeddings(model, model_type) -> list[torch.nn.Module]:
 def get_transformer_layers(model, model_type):
     if model_type == LLAMA_MODEL:
         return [layer for layer in model.model.layers]
+    elif model_type == QWEN_MODEL:
+        return [layer for layer in model.model.layers]
     elif model_type == OPT_MODEL:
         return [layer for layer in model.model.decoder.layers]
     else:
@@ -101,6 +126,8 @@ def get_transformer_layers(model, model_type):
 
 def get_lm_head(model, model_type):
     if model_type == LLAMA_MODEL:
+        return model.lm_head
+    elif model_type == QWEN_MODEL:
         return model.lm_head
     elif model_type == OPT_MODEL:
         return model.lm_head
@@ -112,6 +139,10 @@ def get_pre_head_layernorm(model, model_type):
         pre_head_layernorm = model.model.norm
         assert isinstance(pre_head_layernorm,
                           transformers.models.llama.modeling_llama.LlamaRMSNorm)
+    elif model_type == QWEN_MODEL:
+        pre_head_layernorm = model.model.norm
+        assert isinstance(pre_head_layernorm,
+                          transformers.models.qwen2.modeling_qwen2.Qwen2RMSNorm)
     elif model_type == OPT_MODEL:
         pre_head_layernorm = model.model.decoder.final_layer_norm
         assert pre_head_layernorm is not None
@@ -122,6 +153,8 @@ def get_pre_head_layernorm(model, model_type):
 def get_mlp_bottleneck_size(model):
     model_type = get_model_type(model)
     if model_type == LLAMA_MODEL:
+        return model.config.intermediate_size
+    elif model_type == QWEN_MODEL:
         return model.config.intermediate_size
     elif model_type == OPT_MODEL:
         return model.config.ffn_dim
@@ -196,7 +229,7 @@ def capture_layer_io(model_type, layer, layer_input):
 
     handles = []
 
-    if model_type == LLAMA_MODEL:
+    if model_type == LLAMA_MODEL or QWEN_MODEL:
         captured_inputs = {
             'k_proj': [],  # q_proj, v_proj has the same input as k_proj
             'o_proj': [],

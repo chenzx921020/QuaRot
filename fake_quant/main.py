@@ -57,13 +57,14 @@ def main():
             model.load_state_dict(save_dict["model"])
             
         elif not args.w_rtn: # GPTQ Weight Quantization
-            assert "llama" in args.model, "Only llama is supported for GPTQ!"
+            #assert "llama" in args.model.lower(), "Only llama is supported for GPTQ!"
             
-            trainloader = data_utils.get_loaders(
-                args.cal_dataset, nsamples=args.nsamples,
-                seed=args.seed, model=args.model,
-                seqlen=model.seqlen, eval_mode=False
-            )
+            # trainloader = data_utils.get_loaders(
+            #     args.cal_dataset, nsamples=args.nsamples,
+            #     seed=args.seed, model=args.model,
+            #     seqlen=model.seqlen, eval_mode=False
+            # )
+            trainloader = torch.load('/nvme_data/yuanzhihang/QuaRot/dataloader_qwen1.5_wikitext2_128.cache')
             quantizers = gptq_utils.gptq_fwrd(model, trainloader, utils.DEV, args)
             save_dict["w_quantizers"] = quantizers
         else: # RTN Weight Quantization
@@ -79,7 +80,7 @@ def main():
     if args.a_bits < 16 or args.v_bits < 16:
         qlayers = quant_utils.find_qlayers(model, layers=[quant_utils.ActQuantWrapper])
         down_proj_groupsize = -1
-        if args.a_groupsize > 0 and "llama" in args.model:
+        if args.a_groupsize > 0 and ("llama" in args.model.lower() or "qwen" in args.model.lower()):
             down_proj_groupsize = utils.llama_down_proj_groupsize(model, args.a_groupsize)
         
         for name in qlayers:            
@@ -124,15 +125,15 @@ def main():
                             **k_quant_config)
         
     # Evaluating on dataset
-    testloader = data_utils.get_loaders(
-            args.eval_dataset,
-            seed=args.seed,
-            model=args.model,
-            seqlen=model.seqlen,
-            hf_token=args.hf_token,
-            eval_mode=True
-        )
-
+    # testloader = data_utils.get_loaders(
+    #         args.eval_dataset,
+    #         seed=args.seed,
+    #         model=args.model,
+    #         seqlen=model.seqlen,
+    #         hf_token=args.hf_token,
+    #         eval_mode=True
+    #     )
+    testloader = torch.load('/nvme_data/yuanzhihang/QuaRot/testloader_qwen1.5_wikitext2_all.cache')
     
     dataset_ppl = eval_utils.evaluator(model, testloader, utils.DEV, args)
     if args.wandb:
